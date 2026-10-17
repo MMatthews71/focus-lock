@@ -132,7 +132,7 @@ async function main() {
     for (const m of appTargets) info('- ' + m.target.value + '  (' + m.rule.type + ')');
   }
 
-  // 3. Is the named app actually blocked?
+  // 3. Is the named app actually blocked, and WILL a break be offered?
   console.log('');
   const check = await request('POST', '/check', { kind: 'app', value: testApp });
   if (check && check.body) {
@@ -146,7 +146,33 @@ async function main() {
         info('   "tModLoader.exe", not "Terraria.exe").');
       }
     } else {
-      ok(testApp + ' IS blocked by a rule (reason: ' + d.reason + ', breakAvailable: ' + d.breakAvailable + ').');
+      ok(testApp + ' IS blocked (reason: ' + d.reason + ', breakAvailable: ' + d.breakAvailable + ', breaksLeft: ' + d.breaksRemaining + ').');
+      // Explain whether a "take a break" option can appear at all.
+      if (d.breakAvailable) {
+        ok('A break IS available — you SHOULD see the break screen with a break button.');
+        info('If no screen appears, the block-screen assets are missing or failing to');
+        info('launch — see the asset check and overlay.log below.');
+      } else if (d.reason === 'permanent-block') {
+        warn('This is a PERMANENT block — by design there is no break option, ever.');
+        info('The app is simply closed. If you want breaks instead, change the rule to');
+        info('"Daily breaks" in the desktop app. (FocusLock never lets you un-block a');
+        info('target, but you can switch between blocking rule types.)');
+      } else if (d.reason === 'blocked-by-mode') {
+        warn('Blocked by the active Mode (not the target\'s own rule) — no break is offered.');
+        info('Switch the Mode off (or to one that allows breaks) in the desktop app.');
+      } else if (d.reason === 'blocked-by-focus-session') {
+        warn('Blocked by an active Focus Session — breaks are disabled until it ends.');
+        info('A locked session cannot be ended early; that is the commitment device.');
+      } else if (d.reason === 'blocked-by-schedule') {
+        warn('Blocked by schedule — it is outside the allowed time window; no break applies.');
+      } else if (d.reason === 'blocked-no-break-remaining') {
+        warn('It is a Daily-break rule, but you have used ALL your break tokens today.');
+        info('The break option only appears when a token is free. Tokens refill at your');
+        info('reset time (default 05:00). Breaks left right now: ' + d.breaksRemaining + '.');
+      } else if (d.reason === 'blocked-fail-closed') {
+        warn('Service is in fail-closed safe mode (config integrity failed) — everything');
+        info('is blocked and no breaks are offered until a trusted config is restored.');
+      }
     }
   } else {
     warn('Could not run the /check call.');
