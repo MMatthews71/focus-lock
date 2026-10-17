@@ -24,6 +24,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
 import { CONTROL_PAGE_HTML } from './control.js';
+import { isServiceElevated } from './elevation.js';
 import { parseNewTarget } from './targetinput.js';
 import type { ProtectionService } from './service.js';
 import type { ExtensionGuardian } from './guardian.js';
@@ -94,6 +95,9 @@ async function handle(
   if (method === 'GET' && path === '/health') {
     return sendJson(res, 200, {
       ...service.getStatus(),
+      // Whether the service can force-close elevated apps. If false, taskkill is
+      // denied against a higher-integrity game and it will never close.
+      elevated: isServiceElevated(),
       // Browser enforcement is permanent — always on, no setting to disable it.
       guardian: { enforce: true, browsers: guardian ? guardian.status() : [] },
       appGuardian: { blocked: appGuardian ? appGuardian.status() : [] },

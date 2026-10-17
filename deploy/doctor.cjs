@@ -114,6 +114,16 @@ async function main() {
   if (health.body.integrityOk === false) {
     bad('Config integrity FAILED — the service is in fail-closed safe mode.');
   }
+  if (health.body.elevated === false) {
+    warn('Service is NOT elevated — it can show the block screen, but it CANNOT');
+    info('force-close (or minimize) a game that runs at a higher privilege. If a');
+    info('blocked app refuses to close, this is why. Run the always-on elevated');
+    info('guardian: install-elevated.bat (as admin), and close the FocusLock');
+    info('desktop app if it is open (it can start an unelevated copy). Also avoid');
+    info('launching Steam/the game "as administrator".');
+  } else if (health.body.elevated === true) {
+    ok('Service is elevated — it can force-close blocked apps.');
+  }
   const targetCount = health.body.protectedTargets || 0;
   if (targetCount === 0) warn('No targets are configured yet — nothing is blocked.');
   else ok(targetCount + ' target(s) configured.');
@@ -208,7 +218,21 @@ async function main() {
     info(testApp + ' does not appear to be running — open it, then re-run the doctor.');
   }
 
-  // 6. Recent logs.
+  // 6. Scan the service log for a "can't close the app" loop — the telltale
+  //    sign the service is under-privileged relative to the game.
+  const svcTail = tail(path.join(deployRoot, 'service.log'), 60) || [];
+  const killFail = svcTail.some(
+    (l) => /could not terminate|could not be terminated|access is denied|no running instance/i.test(l),
+  );
+  if (killFail) {
+    console.log('');
+    bad('The service is trying but FAILING to close a blocked app (see service.log).');
+    info('It can see the app but not kill it — the app is at a higher privilege.');
+    info('Fix: run install-elevated.bat (as admin) so the guardian is elevated,');
+    info('close the FocusLock desktop app, and do not run Steam/the game as admin.');
+  }
+
+  // 7. Recent logs.
   for (const [label, file] of [
     ['service.log', path.join(deployRoot, 'service.log')],
     ['overlay.log', path.join(deployRoot, 'overlay.log')],
