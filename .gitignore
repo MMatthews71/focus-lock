@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Local data / runtime
+*.sqlite
+*.sqlite-journal
+*.db
+data/
+.focuslock/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Env / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Test coverage
+coverage/
+
+# Desktop native/build artifacts
+apps/desktop/src-tauri/target/
+apps/desktop/release/
+
+# Generated at install time by install-background.bat (machine-specific)
+.focuslock-watchdog.vbs

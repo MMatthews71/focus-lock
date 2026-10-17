@@ -1,0 +1,22 @@
+{
+  "name": "@focuslock/service",
+  "version": "0.1.0",
+  "description": "FocusLock Background Protection Service — the always-on source of truth that enforces every rule.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "dev": "node --experimental-strip-types src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@focuslock/core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

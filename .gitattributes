@@ -1,0 +1,7 @@
+# Windows script files must use CRLF, or cmd.exe / wscript misparse them and
+# fail silently (the console window flashes and closes). Force it regardless of
+# each contributor's core.autocrlf setting.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.vbs text eol=crlf
+*.ps1 text eol=crlf

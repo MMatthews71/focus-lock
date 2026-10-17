@@ -1,0 +1,153 @@
+/* FocusLock block page — calm, modern, dark-first (Opal / Linear / Arc feel). */
+:root {
+  --bg: #0e0f13;
+  --card: #16181f;
+  --border: #23262f;
+  --text: #e7e9ee;
+  --muted: #8b909c;
+  --accent: #7c9cff;
+  --accent-strong: #5a7dff;
+  --danger: #ff6b6b;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --border: #e5e7ec;
+    --text: #1a1c22;
+    --muted: #6b7180;
+    --accent: #4a6cff;
+    --accent-strong: #3a5cff;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  padding: 24px;
+}
+
+.card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 40px 36px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  animation: rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.lock {
+  font-size: 28px;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+.host {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+  word-break: break-all;
+}
+.reason {
+  margin: 0 0 28px;
+  font-size: 16px;
+}
+
+.meta {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.meta-item {
+  flex: 1;
+  background: rgba(127, 140, 170, 0.08);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 12px;
+}
+.meta-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.meta-value {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+button {
+  font: inherit;
+  border-radius: 12px;
+  padding: 13px 16px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: transform 0.08s ease, background 0.15s ease, opacity 0.15s ease;
+}
+button:active { transform: scale(0.98); }
+.primary {
+  background: var(--accent-strong);
+  color: white;
+  font-weight: 600;
+}
+.primary:hover { background: var(--accent); }
+.ghost {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--border);
+}
+.ghost:hover { color: var(--text); }
+
+.footnote {
+  margin: 28px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---- Meditation view ---- */
+#meditation {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.progress {
+  width: 100%;
+  height: 8px;
+  background: rgba(127, 140, 170, 0.18);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--accent-strong);
+  border-radius: 999px;
+  transition: width 0.25s linear;
+}

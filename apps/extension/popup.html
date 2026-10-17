@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="block.css" />
+    <style>
+      body { padding: 16px; min-width: 240px; display: block; }
+      .status { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+      .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+      .dot.ok { background: #34d399; }
+      .dot.bad { background: var(--danger); }
+      .row { display: flex; justify-content: space-between; margin-top: 12px; font-size: 13px; color: var(--muted); }
+      .row b { color: var(--text); font-variant-numeric: tabular-nums; }
+      h2 { margin: 0 0 14px; font-size: 15px; }
+    </style>
+  </head>
+  <body>
+    <h2>FocusLock</h2>
+    <div class="status"><span class="dot" id="dot"></span><span id="status-text">Checking…</span></div>
+    <div class="row"><span>Protected targets</span><b id="targets">—</b></div>
+    <div class="row"><span>Breaks remaining</span><b id="breaks">—</b></div>
+    <div class="row"><span>Integrity</span><b id="integrity">—</b></div>
+    <script src="popup.js"></script>
+  </body>
+</html>

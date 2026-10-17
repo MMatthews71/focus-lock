@@ -1,0 +1,6 @@
+{
+  "name": "focuslock-overlay",
+  "private": true,
+  "description": "Full-screen block screen shown when a blocked app is closed.",
+  "main": "main.cjs"
+}

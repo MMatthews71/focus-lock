@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "FocusLock",
+  "version": "0.1.4",
+  "description": "Asks the FocusLock background service whether a page may load, and shows the block page when it may not.",
+  "permissions": ["webNavigation", "tabs", "storage", "alarms"],
+  "host_permissions": ["<all_urls>", "http://127.0.0.1/*", "http://localhost/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_title": "FocusLock",
+    "default_popup": "popup.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["block.html", "block.js", "block.css", "Meditation.mp3"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
