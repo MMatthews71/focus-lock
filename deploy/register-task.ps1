@@ -54,6 +54,15 @@ $settings = New-ScheduledTaskSettingsSet `
 Register-ScheduledTask -TaskName 'FocusLock Guardian' -Force `
   -Action $action -Trigger @($atLogon, $minute) -Principal $principal -Settings $settings | Out-Null
 
-Start-Process schtasks -ArgumentList '/Run', '/TN', 'FocusLock Guardian' -Wait -NoNewWindow
-
-Write-Host 'FocusLock Guardian registered (Parallel, at-logon + minute backstop) and started.'
+# Start it now. Use the native cmdlet, NOT `schtasks /Run /TN FocusLock Guardian`
+# via Start-Process: Start-Process joins ArgumentList with spaces and does not
+# quote, so schtasks sees `/TN FocusLock Guardian` as two args and fails with
+# "Invalid argument/option - 'Guardian'". The task then only starts on its next
+# minute-trigger, making it look like the install never started the service.
+try {
+  Start-ScheduledTask -TaskName 'FocusLock Guardian' -ErrorAction Stop
+  Write-Host 'FocusLock Guardian registered (Parallel, at-logon + minute backstop) and started.'
+} catch {
+  Write-Host "FocusLock Guardian registered, but immediate start failed: $($_.Exception.Message)"
+  Write-Host 'It will start automatically within ~1 minute (minute backstop trigger).'
+}
