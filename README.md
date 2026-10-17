@@ -49,6 +49,12 @@ running.
 > Prefer to see logs? `run.bat` does the same thing but keeps a visible console
 > for build output and app logs — useful for troubleshooting.
 
+> **Block screen didn't appear when you opened a blocked app?** Double-click
+> **`focuslock-doctor.bat`** (optionally pass the game's process name, e.g.
+> `focuslock-doctor.bat tModLoader.exe`). It checks the service, your rules,
+> whether that app is actually blocked, and whether the block-screen pieces are
+> installed, then prints a plain-English verdict and the recent logs.
+
 **Any platform (manual):**
 
 ```bash

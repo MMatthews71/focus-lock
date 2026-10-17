@@ -62,6 +62,33 @@ copy /y "%REPO%packages\service\dist\*.js.map"  "%DEPLOY%\service\" >nul 2>nul
 xcopy /y /e /q "%REPO%packages\core\dist\*"     "%DEPLOY%\node_modules\@focuslock\core\dist\" >nul
 xcopy /y /e /q "%REPO%apps\overlay\*"           "%DEPLOY%\overlay\" >nul
 
+REM  Deploy the package.json files that mark the copied .js as ES modules.
+REM  Without these Node runs them as CommonJS and the service dies instantly with
+REM  "Cannot use import statement outside a module" (and the @focuslock/core
+REM  import cannot resolve). These two files are what make the deployed service
+REM  actually boot.
+>"%DEPLOY%\service\package.json" echo {"type":"module"}
+copy /y "%REPO%packages\core\package.json" "%DEPLOY%\node_modules\@focuslock\core\package.json" >nul
+
+REM  Deploy the Electron runtime the block screen needs. Without electron.exe
+REM  next to the overlay, a blocked app (e.g. Terraria) is closed WITHOUT ever
+REM  showing the block screen — so this copy is not optional.
+if not exist "%REPO%node_modules\electron\dist\electron.exe" (
+    echo   Electron runtime not found - fetching it ^(npm install^)...
+    call npm install --no-audit --no-fund
+)
+if exist "%REPO%node_modules\electron\dist\electron.exe" (
+    echo   Deploying Electron runtime for the block screen...
+    if not exist "%DEPLOY%\electron" mkdir "%DEPLOY%\electron"
+    xcopy /y /e /q "%REPO%node_modules\electron\dist\*" "%DEPLOY%\electron\" >nul
+) else (
+    echo   [X] Electron runtime is still missing - the app block screen cannot be shown.
+    echo       Run setup.bat ^(or double-click FocusLock.vbs once^) to download Electron,
+    echo       then re-run this installer.
+    pause
+    exit /b 1
+)
+
 REM --- 3. Copy the supervisor + hidden launcher -----------------------------
 echo   Installing supervisor + launcher...
 copy /y "%REPO%deploy\supervisor.cjs"       "%DEPLOY%\supervisor.cjs"       >nul
