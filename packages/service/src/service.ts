@@ -47,7 +47,7 @@ import { Store } from './store.js';
  * service outlives the UI, so a stale one could otherwise keep running with old
  * logic — e.g. not understanding a newer target type).
  */
-export const SERVICE_VERSION = '0.15.0-meditation';
+export const SERVICE_VERSION = '0.16.0-blockscreen';
 
 export interface ServiceStatus {
   running: true;

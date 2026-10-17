@@ -62,6 +62,14 @@ copy /y "%REPO%packages\service\dist\*.js.map"  "%DEPLOY%\service\" >nul 2>nul
 xcopy /y /e /q "%REPO%packages\core\dist\*"     "%DEPLOY%\node_modules\@focuslock\core\dist\" >nul
 xcopy /y /e /q "%REPO%apps\overlay\*"           "%DEPLOY%\overlay\" >nul
 
+REM  Deploy the package.json files that mark the copied .js as ES modules.
+REM  Without these Node runs them as CommonJS and the service dies instantly with
+REM  "Cannot use import statement outside a module" (and the @focuslock/core
+REM  import cannot resolve). These two files are what make the deployed service
+REM  actually boot.
+>"%DEPLOY%\service\package.json" echo {"type":"module"}
+copy /y "%REPO%packages\core\package.json" "%DEPLOY%\node_modules\@focuslock\core\package.json" >nul
+
 REM  Deploy the Electron runtime the block screen needs. Without electron.exe
 REM  next to the overlay, a blocked app (e.g. Terraria) is closed WITHOUT ever
 REM  showing the block screen — so this copy is not optional.
