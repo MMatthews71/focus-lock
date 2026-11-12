@@ -3,10 +3,9 @@
  *
  * Reads the decision context passed in the query string, renders a calm block
  * screen, and — when the service says a daily break is available — offers to
- * spend one. Spending a break (or the weekly pass) first requires sitting
- * through a short guided meditation: only when the audio finishes does the page
- * ask the background worker (which relays to the service) to actually start the
- * break, then reload the original URL so the now-unlocked page loads.
+ * spend one. Spending a break (or the weekly pass) asks the background worker
+ * (which relays to the service) to start it, then reloads the original URL so
+ * the now-unlocked page loads.
  */
 
 const params = new URLSearchParams(location.search);
@@ -57,78 +56,14 @@ setText('reason', REASON_TEXT[reason] ?? 'This page is currently unavailable.');
 setText('reset', formatDuration(msUntilReset));
 setText('breaks', String(breaksRemaining));
 
-const choices = document.getElementById('choices');
-const meditation = document.getElementById('meditation');
-const audio = document.getElementById('med-audio');
-const progress = document.getElementById('med-progress');
-const progressWrap = progress?.closest('.progress');
-
-const meditateBtn = document.getElementById('meditate-btn');
 const breakBtn = document.getElementById('break-btn');
 const passBtn = document.getElementById('weekly-pass-btn');
 
 const canTakeBreak = breakAvailable && !!targetId && breaksRemaining > 0;
 const canTakePass = weeklyPassAvailable && !!targetId;
 
-/** Reveal the unlock buttons once the meditation is done. */
-function unlockBreakButtons() {
-  meditation.hidden = true;
-  choices.hidden = false;
-  if (meditateBtn) meditateBtn.hidden = true;
-  if (breakBtn && canTakeBreak) breakBtn.hidden = false;
-  if (passBtn && canTakePass) passBtn.hidden = false;
-}
-
-/** Play the guided meditation; when it finishes, unlock the break buttons. */
-function playMeditation() {
-  choices.hidden = true;
-  meditation.hidden = false;
-
-  // Tell the service the meditation has begun (starts its wall-clock timer).
-  chrome.runtime.sendMessage({ type: 'start-meditation', targetId }, () => {});
-
-  const onTime = () => {
-    const dur = audio.duration;
-    if (!Number.isFinite(dur) || dur <= 0) return;
-    const pct = Math.min(100, (audio.currentTime / dur) * 100);
-    progress.style.width = `${pct}%`;
-    if (progressWrap) progressWrap.setAttribute('aria-valuenow', String(Math.round(pct)));
-  };
-  const onEnded = () => {
-    cleanup();
-    unlockBreakButtons();
-  };
-  const onError = () => {
-    cleanup();
-    meditation.hidden = true;
-    choices.hidden = false;
-    if (meditateBtn) {
-      meditateBtn.hidden = false;
-      meditateBtn.textContent = 'Could not play meditation — try again';
-    }
-  };
-  function cleanup() {
-    audio.removeEventListener('timeupdate', onTime);
-    audio.removeEventListener('ended', onEnded);
-    audio.removeEventListener('error', onError);
-  }
-
-  audio.addEventListener('timeupdate', onTime);
-  audio.addEventListener('ended', onEnded);
-  audio.addEventListener('error', onError);
-
-  // Play within the click gesture so autoplay policy does not block it.
-  const p = audio.play();
-  if (p && typeof p.catch === 'function') p.catch(onError);
-}
-
-// The meditation gateway is offered whenever a break or pass could be spent.
-if (meditateBtn && (canTakeBreak || canTakePass)) {
-  meditateBtn.hidden = false;
-  meditateBtn.addEventListener('click', playMeditation);
-}
-
 if (breakBtn && canTakeBreak) {
+  breakBtn.hidden = false;
   breakBtn.addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'start-break', targetId }, (response) => {
       if (response?.ok) {
@@ -142,6 +77,7 @@ if (breakBtn && canTakeBreak) {
 
 // Weekly 4-hour pass (e.g. to watch a full movie). Shown only when available.
 if (passBtn && canTakePass) {
+  passBtn.hidden = false;
   passBtn.addEventListener('click', () => {
     if (!confirm('Use your one weekly pass to unlock this for 4 hours? You get only one per week.')) return;
     chrome.runtime.sendMessage({ type: 'start-weekly-pass', targetId }, (response) => {

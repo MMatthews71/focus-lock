@@ -3,13 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; media-src 'self'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'" />
     <title>Blocked · FocusLock</title>
     <link rel="stylesheet" href="block.css" />
   </head>
   <body>
     <main class="card" role="alert" aria-live="polite">
-      <!-- Choice view: shown first. -->
       <div id="choices">
         <div class="meta">
           <div class="meta-item">
@@ -23,20 +22,11 @@
         </div>
 
         <div class="actions">
-          <button id="meditate-btn" class="primary" hidden>▶ Play meditation to unlock a break</button>
           <button id="break-btn" class="primary" hidden>Use one 30-minute break</button>
           <button id="weekly-pass-btn" class="primary" hidden>Watch a movie — 4-hour pass (once a week)</button>
           <button id="close-btn" class="ghost">Close</button>
         </div>
       </div>
-
-      <!-- Meditation view: shown while the meditation plays. -->
-      <section id="meditation" hidden aria-label="Guided meditation">
-        <audio id="med-audio" src="Meditation.mp3" preload="auto"></audio>
-        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-          <div class="progress-bar" id="med-progress"></div>
-        </div>
-      </section>
     </main>
     <script src="overlay.js"></script>
   </body>

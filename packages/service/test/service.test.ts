@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProtectionService } from '../src/service.js';
 import { Store } from '../src/store.js';
-import { DEFAULT_MEDITATION_REQUIRED_MS } from '@focuslock/core';
 
 let dir: string;
 let store: Store;
@@ -39,18 +38,13 @@ describe('ProtectionService end-to-end', () => {
     expect(before.allowed).toBe(false);
     expect(before.breakAvailable).toBe(true);
 
-    // The break is gated behind the guided meditation: no meditation, no break.
-    expect(service.startBreak(yt.target.id, now)).toEqual({ ok: false, reason: 'meditation-required' });
-
-    // Meditate, then spend the break once it has run long enough.
-    service.startMeditation(yt.target.id, now);
-    const after = now + DEFAULT_MEDITATION_REQUIRED_MS;
-    const started = service.startBreak(yt.target.id, after);
+    // Spend the break.
+    const started = service.startBreak(yt.target.id, now);
     expect(started.ok).toBe(true);
     expect(service.getStatus().breaksRemaining).toBe(1);
 
     // Now allowed.
-    expect(service.check({ kind: 'web', value: 'https://youtube.com' }, after).allowed).toBe(true);
+    expect(service.check({ kind: 'web', value: 'https://youtube.com' }, now).allowed).toBe(true);
   });
 
   it('expands a category into many targets', () => {
@@ -117,7 +111,7 @@ describe('ProtectionService end-to-end', () => {
     expect(d.reason).toBe('blocked-fail-closed');
 
     // Unrelated mutations must NOT re-sign the stripped config as trusted.
-    expect(tampered.startMeditation('anything').ok).toBe(false);
+    expect(tampered.startBreak('anything').ok).toBe(false);
     expect(tampered.setActiveMode(null).ok).toBe(false);
     expect(tampered.updateSettings({ resetTime: '06:00' }).ok).toBe(false);
     expect(tampered.getStatus().integrityOk).toBe(false);
@@ -177,9 +171,7 @@ describe('ProtectionService end-to-end', () => {
     it('does not refill break tokens when the reset time or timezone changes', () => {
       const yt = service.addTarget({ kind: 'domain', value: 'youtube.com', label: 'YouTube' }, { type: 'daily-break' });
       for (let i = 0; i < 2; i++) {
-        const t = now + i * 3_600_000;
-        service.startMeditation(yt.target.id, t);
-        expect(service.startBreak(yt.target.id, t + DEFAULT_MEDITATION_REQUIRED_MS).ok).toBe(true);
+        expect(service.startBreak(yt.target.id, now + i * 3_600_000).ok).toBe(true);
       }
       const later = now + 3 * 3_600_000; // 15:00 UTC, both breaks spent
       expect(service.check({ kind: 'web', value: 'https://youtube.com' }, later).breaksRemaining).toBe(0);
@@ -205,8 +197,7 @@ describe('ProtectionService end-to-end', () => {
     });
 
     it('refuses a break for an id that is not on the list', () => {
-      service.startMeditation('made-up', now);
-      expect(service.startBreak('made-up', now + DEFAULT_MEDITATION_REQUIRED_MS)).toEqual({ ok: false, reason: 'not-found' });
+      expect(service.startBreak('made-up', now)).toEqual({ ok: false, reason: 'not-found' });
     });
   });
 
@@ -311,63 +302,19 @@ describe('ProtectionService end-to-end', () => {
   });
 
   describe('weekly pass', () => {
-    it('unlocks a website target for 4 hours (after meditating)', () => {
+    it('unlocks a website target for 4 hours', () => {
       const now = Date.UTC(2024, 0, 1, 12, 0, 0);
       const t = service.addTarget({ kind: 'keyword', value: '123movie', label: 'movies' }, { type: 'daily-break' });
-      service.startMeditation(t.target.id, now);
-      const after = now + DEFAULT_MEDITATION_REQUIRED_MS;
-      expect(service.startWeeklyPass(t.target.id, after)).toEqual({ ok: true });
-      expect(service.check({ kind: 'web', value: 'https://123movies.com' }, after).reason).toBe(
+      expect(service.startWeeklyPass(t.target.id, now)).toEqual({ ok: true });
+      expect(service.check({ kind: 'web', value: 'https://123movies.com' }, now).reason).toBe(
         'allowed-by-weekly-pass',
       );
     });
 
-    it('refuses to spend the pass on an app (before even reaching the meditation gate)', () => {
+    it('refuses to spend the pass on an app', () => {
       const t = service.addTarget({ kind: 'app', value: 'Terraria', label: 'Terraria' }, { type: 'daily-break' });
       expect(service.startWeeklyPass(t.target.id)).toEqual({ ok: false, reason: 'not-for-apps' });
       expect(service.check({ kind: 'app', value: 'Terraria.exe' }).allowed).toBe(false);
-    });
-  });
-
-  describe('meditation gate', () => {
-    const now = Date.UTC(2024, 0, 1, 12, 0, 0);
-
-    it('refuses a break until the meditation has run long enough', () => {
-      const yt = service.addTarget(
-        { kind: 'domain', value: 'youtube.com', label: 'YouTube' },
-        { type: 'daily-break' },
-      );
-      service.startMeditation(yt.target.id, now);
-      // Too soon — still short of the required duration.
-      expect(service.startBreak(yt.target.id, now + DEFAULT_MEDITATION_REQUIRED_MS - 1)).toEqual({
-        ok: false,
-        reason: 'meditation-required',
-      });
-      // Long enough — granted.
-      expect(service.startBreak(yt.target.id, now + DEFAULT_MEDITATION_REQUIRED_MS).ok).toBe(true);
-    });
-
-    it('refuses the weekly pass without a completed meditation', () => {
-      const t = service.addTarget({ kind: 'domain', value: 'netflix.com', label: 'Netflix' }, { type: 'daily-break' });
-      expect(service.startWeeklyPass(t.target.id, now)).toEqual({ ok: false, reason: 'meditation-required' });
-    });
-
-    it('consumes the meditation — a second break needs a fresh one', () => {
-      const yt = service.addTarget(
-        { kind: 'domain', value: 'youtube.com', label: 'YouTube' },
-        { type: 'daily-break' },
-      );
-      // First break: meditate, wait, spend.
-      service.startMeditation(yt.target.id, now);
-      const t1 = now + DEFAULT_MEDITATION_REQUIRED_MS;
-      expect(service.startBreak(yt.target.id, t1).ok).toBe(true);
-      // Let that break expire so a second could start.
-      const t2 = t1 + 31 * 60 * 1000;
-      // The earlier meditation was consumed — a second break is refused.
-      expect(service.startBreak(yt.target.id, t2)).toEqual({ ok: false, reason: 'meditation-required' });
-      // Meditate again, then it is granted.
-      service.startMeditation(yt.target.id, t2);
-      expect(service.startBreak(yt.target.id, t2 + DEFAULT_MEDITATION_REQUIRED_MS).ok).toBe(true);
     });
   });
 });
