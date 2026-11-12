@@ -121,11 +121,6 @@ if (arg('mode') === 'banner') {
     }
   });
 
-  ipcMain.handle('fl:start-meditation', async () => {
-    // Begin the service's meditation timer; the break can only start once it
-    // has run long enough.
-    return post('/breaks/meditation/start', { targetId });
-  });
   ipcMain.handle('fl:start-break', async () => {
     const res = await post('/breaks/start', { targetId });
     if (res.ok) {

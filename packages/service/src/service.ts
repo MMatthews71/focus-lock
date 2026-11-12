@@ -18,10 +18,6 @@ import {
   startBreak as startBreakPure,
   endBreakEarly as endBreakEarlyPure,
   startWeeklyPass as startWeeklyPassPure,
-  startMeditation as startMeditationPure,
-  isMeditationSatisfied,
-  clearMeditation,
-  DEFAULT_MEDITATION_REQUIRED_MS,
   createWeeklyPassState,
   expandCategory,
   isCategoryId,
@@ -87,16 +83,18 @@ export class ProtectionService {
       // Drop any leftover global-pause flag from older versions.
       const { pausedUntil: _drop, ...rest } = loaded.state as EngineState & { pausedUntil?: unknown };
       // Backward-compat: older states have no removalRequestedAt / weeklyPass,
-      // and pre-meditation states have no meditation fields on the break pool.
+      // and states from the meditation-gate era carry meditation fields on the
+      // break pool that are no longer used.
+      const {
+        meditationRequiredMs: _dropMs,
+        pendingMeditation: _dropPending,
+        ...breaks
+      } = rest.breaks as EngineState['breaks'] & { meditationRequiredMs?: unknown; pendingMeditation?: unknown };
       this.state = {
         ...rest,
         removalRequestedAt: rest.removalRequestedAt ?? null,
         weeklyPass: rest.weeklyPass ?? createWeeklyPassState(),
-        breaks: {
-          ...rest.breaks,
-          meditationRequiredMs: rest.breaks.meditationRequiredMs ?? DEFAULT_MEDITATION_REQUIRED_MS,
-          pendingMeditation: rest.breaks.pendingMeditation ?? null,
-        },
+        breaks,
       };
       this.integrityOk = !loaded.integrityFailed;
       // Never resume in a mode that switches blocks off (older versions allowed
@@ -179,7 +177,7 @@ export class ProtectionService {
    * Whether non-protective mutations are allowed right now. While the config
    * has failed its integrity check we must not re-sign the (possibly
    * rule-stripped) state as a side effect of an unrelated call such as starting
-   * a meditation or switching modes. Only adding protection re-establishes
+   * a break or switching modes. Only adding protection re-establishes
    * trust (see {@link persist}).
    */
   private get locked(): boolean {
@@ -260,34 +258,14 @@ export class ProtectionService {
     return members;
   }
 
-  /**
-   * Begin the guided meditation that must precede a break or weekly pass for
-   * `targetId`. The returned `requiredMs` tells the UI how long the meditation
-   * must run before the unlock will be granted.
-   */
-  startMeditation(targetId: string, now = Date.now()): { ok: boolean; requiredMs: number } {
-    if (this.locked) return { ok: false, requiredMs: this.state.breaks.meditationRequiredMs };
-    this.state = { ...this.state, breaks: startMeditationPure(this.state.breaks, targetId, now) };
-    this.persist();
-    return { ok: true, requiredMs: this.state.breaks.meditationRequiredMs };
-  }
-
   startBreak(targetId: string, now = Date.now()): { ok: boolean; reason?: string } {
     if (this.locked) return { ok: false, reason: 'integrity-failed' };
     // A break may only unlock something that is actually on the list.
     if (!this.state.managedTargets.some((m) => m.target.id === targetId)) {
       return { ok: false, reason: 'not-found' };
     }
-    // Gate: the user must have sat through the full guided meditation first.
-    if (!isMeditationSatisfied(this.state.breaks, targetId, now)) {
-      return { ok: false, reason: 'meditation-required' };
-    }
     const result = startBreakPure(this.state.breaks, targetId, now, this.state.settings);
-    // Consume the meditation only when the break actually starts.
-    this.state = {
-      ...this.state,
-      breaks: result.ok ? clearMeditation(result.state) : result.state,
-    };
+    this.state = { ...this.state, breaks: result.state };
     this.persist();
     if (result.ok) {
       this.store.appendStatEvent({ type: 'break-used', targetId, at: now });
@@ -309,17 +287,8 @@ export class ProtectionService {
     if (!managed) return { ok: false, reason: 'not-found' };
     // Websites only — the pass must never become a 4-hour window for an app/game.
     if (managed.target.kind === 'app') return { ok: false, reason: 'not-for-apps' };
-    // Gate: the user must have sat through the full guided meditation first.
-    if (!isMeditationSatisfied(this.state.breaks, targetId, now)) {
-      return { ok: false, reason: 'meditation-required' };
-    }
     const result = startWeeklyPassPure(this.state.weeklyPass, targetId, now, this.state.settings);
-    this.state = {
-      ...this.state,
-      weeklyPass: result.state,
-      // Consume the meditation only when the pass actually starts.
-      breaks: result.ok ? clearMeditation(this.state.breaks) : this.state.breaks,
-    };
+    this.state = { ...this.state, weeklyPass: result.state };
     this.persist();
     if (result.ok) {
       this.store.appendStatEvent({ type: 'break-used', targetId, at: now });
@@ -431,7 +400,6 @@ export class ProtectionService {
         ...breaks,
         tokensRemaining: dueRefill ? breaks.tokensPerDay : breaks.tokensRemaining,
         activeBreak: dueRefill ? null : breaks.activeBreak,
-        pendingMeditation: dueRefill ? null : breaks.pendingMeditation,
         lastResetKey: newDay,
       },
       weeklyPass: {

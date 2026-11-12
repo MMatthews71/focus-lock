@@ -23,7 +23,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["block.html", "block.js", "block.css", "Meditation.mp3"],
+      "resources": ["block.html", "block.js", "block.css"],
       "matches": ["<all_urls>"]
     }
   ]

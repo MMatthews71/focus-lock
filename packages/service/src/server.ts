@@ -13,7 +13,6 @@
  *   PUT  /targets/:id   {rule}        change a target's rule
  *   DEL  /targets/:id                 remove a target
  *   POST /categories   {categoryId,rule}
- *   POST /breaks/meditation/start {targetId}  begin the pre-break meditation
  *   POST /breaks/start {targetId}
  *   POST /breaks/end
  *   POST /modes/activate {modeId|null}
@@ -181,17 +180,6 @@ async function handle(
   }
 
   // ---- Breaks ----
-  // A break (and the weekly pass) is gated behind a guided meditation: the UI
-  // calls this when meditation playback begins, then /breaks/start (or
-  // /weekly-pass/start) once it finishes. The service only grants the unlock if
-  // enough wall-clock time has elapsed since this call — the gate cannot be
-  // skipped by the UI.
-  if (method === 'POST' && path === '/breaks/meditation/start') {
-    const body = await readJson<{ targetId: string }>(req);
-    if (typeof body?.targetId !== 'string' || !body.targetId) return sendJson(res, 400, { error: 'expected {targetId}' });
-    const result = service.startMeditation(body.targetId);
-    return sendJson(res, result.ok ? 200 : 409, result);
-  }
   if (method === 'POST' && path === '/breaks/start') {
     const body = await readJson<{ targetId: string }>(req);
     if (typeof body?.targetId !== 'string' || !body.targetId) return sendJson(res, 400, { error: 'expected {targetId}' });

@@ -124,20 +124,6 @@ export interface BreakState {
    * for. Used to detect when a new day has begun and tokens should refill.
    */
   lastResetKey: string;
-  /**
-   * How long (ms) a guided meditation must genuinely run before a break or
-   * weekly pass may be spent. This is the gate that makes a break a deliberate,
-   * un-rushed choice: the user must sit through the meditation first.
-   */
-  meditationRequiredMs: number;
-  /**
-   * A meditation the user has begun in order to earn an unlock, or null. The
-   * gate is satisfied once `meditationRequiredMs` has elapsed since `startedAt`
-   * for the matching target — enforced by wall-clock time, so the UI cannot
-   * fast-forward it. Exclusive: starting a new meditation replaces any pending
-   * one, and it is cleared at the daily reset and when its unlock is spent.
-   */
-  pendingMeditation: PendingMeditation | null;
 }
 
 /**
@@ -148,14 +134,6 @@ export interface ActiveBreak {
   targetId: string;
   startedAt: EpochMs;
   endsAt: EpochMs;
-}
-
-/** A guided meditation in progress, earning the right to unlock one target. */
-export interface PendingMeditation {
-  /** The target this meditation will unlock once it has run long enough. */
-  targetId: string;
-  /** When the meditation playback began. */
-  startedAt: EpochMs;
 }
 
 /**

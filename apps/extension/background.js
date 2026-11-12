@@ -329,19 +329,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       return;
     }
-    if (message && message.type === 'start-meditation' && message.targetId) {
-      try {
-        const res = await fetch(`${SERVICE_ORIGIN}/breaks/meditation/start`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ targetId: message.targetId }),
-        });
-        sendResponse(res.ok ? await res.json() : { ok: false });
-      } catch {
-        sendResponse({ ok: false });
-      }
-      return;
-    }
     if (message && message.type === 'start-break' && message.targetId) {
       try {
         const res = await fetch(`${SERVICE_ORIGIN}/breaks/start`, {

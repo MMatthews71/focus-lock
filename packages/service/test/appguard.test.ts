@@ -5,12 +5,6 @@ import { join } from 'node:path';
 import { AppGuardian, DECISION_TIMEOUT_MS, SCREEN_START_GRACE_MS } from '../src/appguard.js';
 import { ProtectionService } from '../src/service.js';
 import { Store } from '../src/store.js';
-import { DEFAULT_MEDITATION_REQUIRED_MS } from '@focuslock/core';
-
-/** Complete the pre-break meditation gate for `targetId` as of `now`. */
-function meditateBefore(svc: ProtectionService, targetId: string, now: number) {
-  svc.startMeditation(targetId, now - DEFAULT_MEDITATION_REQUIRED_MS - 1);
-}
 
 let dir: string;
 let store: Store;
@@ -69,7 +63,6 @@ describe('AppGuardian', () => {
   it('does not close a blocked app while a break for it is active', async () => {
     const t = service.addTarget({ kind: 'app', value: 'Terraria', label: 'Terraria' }, { type: 'daily-break' });
     const now = Date.now();
-    meditateBefore(service, t.target.id, now);
     const start = service.startBreak(t.target.id, now);
     expect(start.ok).toBe(true);
     const { guardian, killed } = makeGuardian(['Terraria.exe']);
@@ -153,7 +146,6 @@ describe('AppGuardian — block screen', () => {
     await guardian.tick();
     expect(minimized).toEqual(['Terraria.exe']); // minimized while deciding
     clock.t += 3_000;
-    meditateBefore(service, t.target.id, clock.t);
     expect(service.startBreak(t.target.id, clock.t).ok).toBe(true);
     for (let i = 0; i < 5; i++) {
       clock.t += 2_000;
@@ -187,7 +179,6 @@ describe('AppGuardian — block screen', () => {
     const { guardian, killed, clock } = makeScreen(['Terraria.exe']);
     await guardian.tick();
     clock.t += 3_000;
-    meditateBefore(service, t.target.id, clock.t);
     expect(service.startBreak(t.target.id, clock.t).ok).toBe(true);
     for (let i = 0; i < 10; i++) {
       clock.t += 2_000;

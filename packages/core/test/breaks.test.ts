@@ -6,11 +6,7 @@ import {
   endBreakEarly,
   canStartBreak,
   isTargetUnlockedByBreak,
-  startMeditation,
-  isMeditationSatisfied,
-  clearMeditation,
   DEFAULT_BREAK_DURATION_MS,
-  DEFAULT_MEDITATION_REQUIRED_MS,
 } from '../src/breaks.js';
 import type { Settings } from '../src/types.js';
 
@@ -98,64 +94,5 @@ describe('break token pool', () => {
     const reconciled = reconcileBreaks(r.state, nextMorning, settings);
     expect(reconciled.tokensRemaining).toBe(2); // refilled, not 3 — no rollover
     expect(reconciled.activeBreak).toBeNull();
-  });
-});
-
-describe('meditation gate', () => {
-  const REQ = DEFAULT_MEDITATION_REQUIRED_MS;
-
-  it('is not satisfied before a meditation has started', () => {
-    const s = createBreakState(T0, settings);
-    expect(s.pendingMeditation).toBeNull();
-    expect(isMeditationSatisfied(s, 'youtube', T0)).toBe(false);
-  });
-
-  it('is not satisfied until the full required duration has elapsed', () => {
-    let s = createBreakState(T0, settings);
-    s = startMeditation(s, 'youtube', T0);
-    expect(isMeditationSatisfied(s, 'youtube', T0)).toBe(false);
-    expect(isMeditationSatisfied(s, 'youtube', T0 + REQ - 1)).toBe(false);
-    expect(isMeditationSatisfied(s, 'youtube', T0 + REQ)).toBe(true);
-  });
-
-  it('only unlocks the target the meditation was started for', () => {
-    let s = createBreakState(T0, settings);
-    s = startMeditation(s, 'youtube', T0);
-    expect(isMeditationSatisfied(s, 'youtube', T0 + REQ)).toBe(true);
-    expect(isMeditationSatisfied(s, 'reddit', T0 + REQ)).toBe(false);
-  });
-
-  it('starting a new meditation replaces the pending one (exclusive)', () => {
-    let s = createBreakState(T0, settings);
-    s = startMeditation(s, 'youtube', T0);
-    s = startMeditation(s, 'reddit', T0 + 10_000);
-    expect(s.pendingMeditation?.targetId).toBe('reddit');
-    expect(isMeditationSatisfied(s, 'youtube', T0 + REQ)).toBe(false);
-    expect(isMeditationSatisfied(s, 'reddit', T0 + 10_000 + REQ)).toBe(true);
-  });
-
-  it('clears a half-finished meditation at the daily reset', () => {
-    let s = createBreakState(T0, settings);
-    s = startMeditation(s, 'youtube', T0);
-    const nextMorning = Date.UTC(2024, 0, 2, 6, 0, 0);
-    const reconciled = reconcileBreaks(s, nextMorning, settings);
-    expect(reconciled.pendingMeditation).toBeNull();
-  });
-
-  it('clearMeditation forgets the pending meditation', () => {
-    let s = createBreakState(T0, settings);
-    s = startMeditation(s, 'youtube', T0);
-    s = clearMeditation(s);
-    expect(s.pendingMeditation).toBeNull();
-    expect(isMeditationSatisfied(s, 'youtube', T0 + REQ)).toBe(false);
-  });
-
-  it('defaults a missing required duration (migrated old state) to the standard length', () => {
-    const legacy = { ...createBreakState(T0, settings) } as Record<string, unknown>;
-    delete legacy.meditationRequiredMs;
-    legacy.pendingMeditation = { targetId: 'youtube', startedAt: T0 };
-    const s = legacy as unknown as ReturnType<typeof createBreakState>;
-    expect(isMeditationSatisfied(s, 'youtube', T0 + REQ - 1)).toBe(false);
-    expect(isMeditationSatisfied(s, 'youtube', T0 + REQ)).toBe(true);
   });
 });

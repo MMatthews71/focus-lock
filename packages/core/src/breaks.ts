@@ -15,23 +15,10 @@
  */
 
 import type { BreakState, EpochMs, Settings } from './types.js';
-
-/** Treat a state loaded from older configs (missing the field) as unlimited-free? No — default. */
-function requiredMeditationMs(state: BreakState): number {
-  return state.meditationRequiredMs ?? DEFAULT_MEDITATION_REQUIRED_MS;
-}
 import { resetDayKey } from './time.js';
 
 export const DEFAULT_TOKENS_PER_DAY = 2;
 export const DEFAULT_BREAK_DURATION_MS = 30 * 60 * 1000; // 30 minutes
-
-/**
- * How long the guided meditation must run before a break or weekly pass may be
- * spent. The bundled `Meditation.mp3` is ~5:49 long; we require a touch less
- * (5:45) so ordinary audio-decode / network jitter never leaves the user a few
- * seconds short of a break they have genuinely sat through.
- */
-export const DEFAULT_MEDITATION_REQUIRED_MS = 5 * 60 * 1000 + 45 * 1000; // 5:45
 
 /** A fresh break pool with full tokens for the current reset day. */
 export function createBreakState(
@@ -39,7 +26,6 @@ export function createBreakState(
   settings: Settings,
   tokensPerDay = DEFAULT_TOKENS_PER_DAY,
   breakDurationMs = DEFAULT_BREAK_DURATION_MS,
-  meditationRequiredMs = DEFAULT_MEDITATION_REQUIRED_MS,
 ): BreakState {
   return {
     tokensPerDay,
@@ -47,8 +33,6 @@ export function createBreakState(
     tokensRemaining: tokensPerDay,
     activeBreak: null,
     lastResetKey: resetDayKey(now, settings.timezoneOffsetMinutes, settings.resetTime),
-    meditationRequiredMs,
-    pendingMeditation: null,
   };
 }
 
@@ -78,8 +62,6 @@ export function reconcileBreaks(
       lastResetKey: currentKey,
       // A break in progress across the reset boundary is ended by the reset.
       activeBreak: null,
-      // A half-finished meditation does not carry over into the new day.
-      pendingMeditation: null,
     };
   }
 
@@ -157,37 +139,4 @@ export function isTargetUnlockedByBreak(
 ): boolean {
   const active = state.activeBreak;
   return active !== null && now < active.endsAt;
-}
-
-// ---- Meditation gate -------------------------------------------------------
-//
-// Before a break (or weekly pass) may be spent, the user must sit through a
-// guided meditation. The pure functions below track only the *start* of that
-// meditation; the gate is satisfied purely by elapsed wall-clock time, so a UI
-// cannot fast-forward or fake it. The service checks `isMeditationSatisfied`
-// before spending an unlock, and `clearMeditation` once it has.
-
-/**
- * Begin (or restart) the meditation that will unlock `targetId`. Exclusive:
- * a single meditation is tracked at a time, so starting one for a new target
- * replaces any pending one.
- */
-export function startMeditation(state: BreakState, targetId: string, now: EpochMs): BreakState {
-  return { ...state, pendingMeditation: { targetId, startedAt: now } };
-}
-
-/**
- * True once a meditation begun for `targetId` has run for at least the required
- * duration. This is the gate `startBreak` / `startWeeklyPass` must pass.
- */
-export function isMeditationSatisfied(state: BreakState, targetId: string, now: EpochMs): boolean {
-  const p = state.pendingMeditation;
-  if (!p || p.targetId !== targetId) return false;
-  return now - p.startedAt >= requiredMeditationMs(state);
-}
-
-/** Forget any pending meditation (e.g. once its unlock has been spent). */
-export function clearMeditation(state: BreakState): BreakState {
-  if (!state.pendingMeditation) return state;
-  return { ...state, pendingMeditation: null };
 }
