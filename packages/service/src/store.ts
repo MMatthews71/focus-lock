@@ -17,15 +17,18 @@
  * closed.
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, appendFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, appendFileSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EngineState, StatEvent } from '@focuslock/core';
 import { canonicalize, sign, verify, loadOrCreateSecret } from './integrity.js';
 
 export interface LoadResult {
-  state: EngineState;
-  /** True when the stored config failed signature verification (tampered). */
+  /** The loaded state, or null when a config exists but nothing in it could be parsed. */
+  state: EngineState | null;
+  /** True when the stored config failed signature verification (tampered/corrupt). */
   integrityFailed: boolean;
+  /** True when config.json was bad and the signed backup was used instead. */
+  restoredFromBackup?: boolean;
 }
 
 interface ConfigFile {
@@ -36,6 +39,7 @@ interface ConfigFile {
 
 export class Store {
   private configPath: string;
+  private backupPath: string;
   private eventsPath: string;
   private secret: Buffer;
 
@@ -46,12 +50,16 @@ export class Store {
   constructor(dataDir: string, secretPath: string) {
     mkdirSync(dataDir, { recursive: true });
     this.configPath = join(dataDir, 'config.json');
+    // Last known-good signed copy. Restored automatically when config.json is
+    // missing, unreadable, or fails verification, so deleting or hand-editing
+    // the main file neither wipes every block nor bricks the browser.
+    this.backupPath = join(dataDir, 'config.backup.json');
     this.eventsPath = join(dataDir, 'events.jsonl');
     this.secret = loadOrCreateSecret(secretPath);
   }
 
   hasConfig(): boolean {
-    return existsSync(this.configPath);
+    return existsSync(this.configPath) || existsSync(this.backupPath);
   }
 
   saveState(state: EngineState): void {
@@ -62,15 +70,60 @@ export class Store {
     const tmp = `${this.configPath}.tmp`;
     writeFileSync(tmp, JSON.stringify(payload), 'utf8');
     renameSync(tmp, this.configPath);
+    // Keep the backup in step. Best effort: the primary write already landed.
+    try {
+      copyFileSync(this.configPath, `${this.backupPath}.tmp`);
+      renameSync(`${this.backupPath}.tmp`, this.backupPath);
+    } catch {
+      /* ignore */
+    }
   }
 
+  /**
+   * Load and verify the config. Never throws: a corrupt or unreadable file is
+   * reported as an integrity failure (fail closed) instead of crashing the
+   * service, which would otherwise leave nothing enforcing app blocks at all.
+   *
+   * Order of preference: a verified primary, then a verified backup, then (if
+   * either file exists but neither verifies) a fail-closed result.
+   */
   loadState(): LoadResult | null {
-    if (!existsSync(this.configPath)) return null;
-    const raw = readFileSync(this.configPath, 'utf8');
-    const payload = JSON.parse(raw) as ConfigFile;
-    const integrityFailed = !verify(this.secret, payload.json, payload.signature);
-    const state = JSON.parse(payload.json) as EngineState;
-    return { state, integrityFailed };
+    const primaryExists = existsSync(this.configPath);
+    const backupExists = existsSync(this.backupPath);
+    if (!primaryExists && !backupExists) return null;
+
+    const primary = primaryExists ? this.readVerified(this.configPath) : null;
+    if (primary?.verified) return { state: primary.state, integrityFailed: false };
+
+    const backup = backupExists ? this.readVerified(this.backupPath) : null;
+    if (backup?.verified) {
+      // Put the good copy back so the next load is clean.
+      try {
+        copyFileSync(this.backupPath, `${this.configPath}.tmp`);
+        renameSync(`${this.configPath}.tmp`, this.configPath);
+      } catch {
+        /* ignore — we still return the verified state */
+      }
+      return { state: backup.state, integrityFailed: false, restoredFromBackup: true };
+    }
+
+    // Neither verifies. Keep whatever state we could parse (so the UI can still
+    // show it), but flag it so the caller fails closed.
+    const parsed = primary?.state ?? backup?.state;
+    if (parsed) return { state: parsed, integrityFailed: true };
+    return { state: null, integrityFailed: true };
+  }
+
+  private readVerified(path: string): { state: EngineState; verified: boolean } | null {
+    try {
+      const payload = JSON.parse(readFileSync(path, 'utf8')) as Partial<ConfigFile>;
+      if (typeof payload.json !== 'string' || typeof payload.signature !== 'string') return null;
+      const state = JSON.parse(payload.json) as EngineState;
+      if (!state || typeof state !== 'object' || !Array.isArray(state.managedTargets)) return null;
+      return { state, verified: verify(this.secret, payload.json, payload.signature) };
+    } catch {
+      return null;
+    }
   }
 
   appendStatEvent(event: StatEvent): void {

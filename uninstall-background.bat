@@ -34,6 +34,7 @@ set "TASK_LOGON=FocusLock Service Startup"
 set "TASK_GUARD=FocusLock Guardian"
 set "STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 set "ORIGIN=http://127.0.0.1:47615"
+set "DEPLOY=%LOCALAPPDATA%\FocusLock"
 
 echo(
 echo   FocusLock - uninstall
@@ -88,6 +89,11 @@ schtasks /Delete /TN "%TASK_GUARD%" /F >nul 2>nul
 schtasks /Delete /TN "%TASK_WATCH%" /F >nul 2>nul
 schtasks /Delete /TN "%TASK_LOGON%" /F >nul 2>nul
 
+REM  Stop the elevated supervisor FIRST. It re-launches the service within ~20s,
+REM  so killing only the service left FocusLock running after "uninstall".
+echo   Stopping the guardian supervisor...
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*supervisor.cjs*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>nul
+
 echo   Stopping the service on port 47615...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :47615 ^| findstr LISTENING') do (
     taskkill /F /PID %%a >nul 2>nul
@@ -95,6 +101,9 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :47615 ^| findstr LISTENING')
 
 if exist "%VBS%" del /f /q "%VBS%" >nul 2>nul
 if exist "%STARTUP%\FocusLock.vbs" del /f /q "%STARTUP%\FocusLock.vbs" >nul 2>nul
+REM  Remove the deployed guardian (code, Electron runtime, logs). Your rules and
+REM  stats in %USERPROFILE%\.focuslock are left in place.
+if exist "%DEPLOY%\supervisor.cjs" rd /s /q "%DEPLOY%" >nul 2>nul
 
 echo(
 echo   Done. FocusLock's always-on protection has been removed.
@@ -108,8 +117,11 @@ REM ---------------------------------------------------------------------------
 REM  Start the service hidden if it is not answering, then wait briefly for it.
 powershell -NoProfile -Command "try { Invoke-RestMethod -Uri '%ORIGIN%/health' -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>nul
 if not errorlevel 1 goto :eof
+REM  Old per-user installs use the watchdog VBS; elevated installs use the
+REM  guardian launcher in %LOCALAPPDATA%\FocusLock.
 if exist "%VBS%" wscript "%VBS%"
-for /l %%i in (1,1,10) do (
+if exist "%DEPLOY%\guardian-launch.vbs" wscript "%DEPLOY%\guardian-launch.vbs"
+for /l %%i in (1,1,30) do (
     powershell -NoProfile -Command "try { Invoke-RestMethod -Uri '%ORIGIN%/health' -TimeoutSec 1 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>nul
     if not errorlevel 1 goto :eof
     timeout /t 1 >nul

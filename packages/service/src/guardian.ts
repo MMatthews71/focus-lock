@@ -30,6 +30,9 @@ import { promisify } from 'node:util';
 
 const execFileP = promisify(execFile);
 
+/** Every OS command gets a time limit, so one stuck call can't freeze enforcement. */
+const COMMAND_TIMEOUT_MS = 8_000;
+
 /** Which process names a heartbeat from a given browser family protects. */
 const EXES_BY_FAMILY: Record<string, string[]> = {
   chrome: ['chrome.exe', 'brave.exe'], // UA-ambiguous chromium
@@ -106,6 +109,9 @@ export class ExtensionGuardian {
   private unprotectedSince = new Map<string, number>();
   private lastStatus: BrowserStatus[] = [];
   private timer: NodeJS.Timeout | null = null;
+  // Never let ticks overlap: a slow tasklist/taskkill would otherwise stack up
+  // concurrent ticks that each try to kill the same browser.
+  private ticking = false;
 
   private readonly graceMs: number;
   private readonly heartbeatTimeoutMs: number;
@@ -133,7 +139,13 @@ export class ExtensionGuardian {
   start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
-      this.tick().catch((err) => this.log(`guardian tick error: ${String(err)}`));
+      if (this.ticking) return;
+      this.ticking = true;
+      this.tick()
+        .catch((err) => this.log(`guardian tick error: ${String(err)}`))
+        .finally(() => {
+          this.ticking = false;
+        });
     }, this.pollMs);
     this.timer.unref?.();
   }
@@ -189,12 +201,12 @@ async function defaultListRunning(): Promise<Set<string>> {
   const found = new Set<string>();
   try {
     if (process.platform === 'win32') {
-      const { stdout } = await execFileP('tasklist', ['/fo', 'csv', '/nh'], { windowsHide: true });
+      const { stdout } = await execFileP('tasklist', ['/fo', 'csv', '/nh'], { windowsHide: true, timeout: COMMAND_TIMEOUT_MS });
       const lower = stdout.toLowerCase();
       for (const exe of SUPPORTED_EXES) if (lower.includes(`"${exe}"`)) found.add(exe);
     } else {
       // Best effort on macOS/Linux by matching process command names.
-      const { stdout } = await execFileP('ps', ['-A', '-o', 'comm=']);
+      const { stdout } = await execFileP('ps', ['-A', '-o', 'comm='], { timeout: COMMAND_TIMEOUT_MS });
       const lower = stdout.toLowerCase();
       if (lower.includes('google chrome') || lower.includes('/chrome')) found.add('chrome.exe');
       if (lower.includes('brave')) found.add('brave.exe');
@@ -215,7 +227,7 @@ async function defaultListRunning(): Promise<Set<string>> {
 /** Close every process with the given executable name. */
 async function defaultKillExe(exe: string): Promise<void> {
   if (process.platform === 'win32') {
-    await execFileP('taskkill', ['/F', '/IM', exe], { windowsHide: true });
+    await execFileP('taskkill', ['/F', '/IM', exe], { windowsHide: true, timeout: COMMAND_TIMEOUT_MS });
   } else {
     const names: Record<string, string> = {
       'chrome.exe': 'Google Chrome',
@@ -228,6 +240,6 @@ async function defaultKillExe(exe: string): Promise<void> {
       'vivaldi.exe': 'Vivaldi',
       'arc.exe': 'Arc',
     };
-    await execFileP('pkill', ['-f', names[exe] ?? exe.replace(/\.exe$/i, '')]);
+    await execFileP('pkill', ['-f', names[exe] ?? exe.replace(/\.exe$/i, '')], { timeout: COMMAND_TIMEOUT_MS });
   }
 }

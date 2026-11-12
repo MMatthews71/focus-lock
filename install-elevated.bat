@@ -41,6 +41,13 @@ echo   =====================================
 echo(
 
 REM --- 1. Build core + service ----------------------------------------------
+REM  A fresh clone has no node_modules yet (no TypeScript compiler, no Electron
+REM  runtime for the block screen), so install first.
+if not exist "%REPO%node_modules\" (
+    echo   Installing dependencies ^(first run only^)...
+    call npm install --no-audit --no-fund
+    if errorlevel 1 goto :buildfail
+)
 echo   Building core + service...
 call npm run build --workspace @focuslock/core
 if errorlevel 1 goto :buildfail
@@ -60,7 +67,24 @@ if not exist "%DEPLOY%\overlay" mkdir "%DEPLOY%\overlay"
 copy /y "%REPO%packages\service\dist\*.js"      "%DEPLOY%\service\" >nul
 copy /y "%REPO%packages\service\dist\*.js.map"  "%DEPLOY%\service\" >nul 2>nul
 xcopy /y /e /q "%REPO%packages\core\dist\*"     "%DEPLOY%\node_modules\@focuslock\core\dist\" >nul
+REM  The service imports "@focuslock/core": Node needs the package's own
+REM  package.json (its "exports" map) to resolve it to dist\index.js.
+copy /y "%REPO%packages\core\package.json"       "%DEPLOY%\node_modules\@focuslock\core\package.json" >nul
+REM  The compiled service is ES modules. Without a package.json declaring
+REM  "type":"module" next to it, Node loads service\index.js as CommonJS and the
+REM  guardian fails to start on a clean install.
+>"%DEPLOY%\package.json" echo {"private":true,"type":"module"}
 xcopy /y /e /q "%REPO%apps\overlay\*"           "%DEPLOY%\overlay\" >nul
+REM  The block screen and break-warning banner run on Electron, which the
+REM  service looks for at %DEPLOY%\electron\electron.exe. Without it, a blocked
+REM  app can never offer a break: it is closed ~15s after launch instead.
+if exist "%REPO%node_modules\electron\dist\electron.exe" (
+    echo   Installing the block-screen runtime...
+    if not exist "%DEPLOY%\electron" mkdir "%DEPLOY%\electron"
+    xcopy /y /e /q "%REPO%node_modules\electron\dist\*" "%DEPLOY%\electron\" >nul
+) else (
+    echo   [!] Electron runtime not found - blocked apps will be closed without the block screen.
+)
 
 REM --- 3. Copy the supervisor + hidden launcher -----------------------------
 echo   Installing supervisor + launcher...

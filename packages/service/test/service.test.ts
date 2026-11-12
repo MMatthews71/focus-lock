@@ -94,12 +94,16 @@ describe('ProtectionService end-to-end', () => {
     store.close();
 
     // Tamper: rewrite the config file's JSON directly, leaving the old signature.
-    const configPath = join(dir, 'config.json');
-    const payload = JSON.parse(readFileSync(configPath, 'utf8'));
-    const mutated = JSON.parse(payload.json);
-    mutated.managedTargets = []; // attacker removes all rules
-    payload.json = JSON.stringify(mutated);
-    writeFileSync(configPath, JSON.stringify(payload), 'utf8');
+    // Both the main file and its signed backup are edited, so there is no
+    // known-good copy to fall back to.
+    for (const name of ['config.json', 'config.backup.json']) {
+      const configPath = join(dir, name);
+      const payload = JSON.parse(readFileSync(configPath, 'utf8'));
+      const mutated = JSON.parse(payload.json);
+      mutated.managedTargets = []; // attacker removes all rules
+      payload.json = JSON.stringify(mutated);
+      writeFileSync(configPath, JSON.stringify(payload), 'utf8');
+    }
 
     // Re-open: integrity check fails -> fully fail closed.
     const reopened = new Store(dir, join(dir, 'config.key'));
@@ -112,11 +116,98 @@ describe('ProtectionService end-to-end', () => {
     expect(d.allowed).toBe(false);
     expect(d.reason).toBe('blocked-fail-closed');
 
-    // Recovery: pushing a fresh config through the app re-establishes trust.
+    // Unrelated mutations must NOT re-sign the stripped config as trusted.
+    expect(tampered.startMeditation('anything').ok).toBe(false);
+    expect(tampered.setActiveMode(null).ok).toBe(false);
+    expect(tampered.updateSettings({ resetTime: '06:00' }).ok).toBe(false);
+    expect(tampered.getStatus().integrityOk).toBe(false);
+
+    // Recovery: adding protection through the app re-establishes trust.
     tampered.addTarget({ kind: 'domain', value: 'x.com', label: 'X' }, { type: 'permanent-block' });
     expect(tampered.getStatus().integrityOk).toBe(true);
     expect(tampered.check({ kind: 'web', value: 'https://example.com' }).allowed).toBe(true);
     reopened.close();
+  });
+
+  it('restores the signed backup when config.json is tampered with or deleted', () => {
+    service.addTarget({ kind: 'domain', value: 'youtube.com', label: 'YouTube' }, { type: 'permanent-block' });
+    store.close();
+
+    const configPath = join(dir, 'config.json');
+    const payload = JSON.parse(readFileSync(configPath, 'utf8'));
+    const mutated = JSON.parse(payload.json);
+    mutated.managedTargets = [];
+    payload.json = JSON.stringify(mutated);
+    writeFileSync(configPath, JSON.stringify(payload), 'utf8');
+
+    const s1 = new Store(dir, join(dir, 'config.key'));
+    const restored = new ProtectionService(s1, Date.UTC(2024, 0, 1, 13, 0, 0));
+    expect(restored.getStatus().integrityOk).toBe(true);
+    expect(restored.getStatus().protectedTargets).toBe(1);
+    expect(restored.check({ kind: 'web', value: 'https://youtube.com' }).allowed).toBe(false);
+
+    // Deleting the main file doesn't wipe the block list either.
+    rmSync(configPath);
+    const s2 = new Store(dir, join(dir, 'config.key'));
+    expect(new ProtectionService(s2, Date.UTC(2024, 0, 1, 13, 0, 0)).getStatus().protectedTargets).toBe(1);
+  });
+
+  it('fails closed (instead of crashing) when the config is unreadable', () => {
+    store.close();
+    writeFileSync(join(dir, 'config.json'), '{not json', 'utf8');
+    writeFileSync(join(dir, 'config.backup.json'), '', 'utf8');
+    const s1 = new Store(dir, join(dir, 'config.key'));
+    const svc = new ProtectionService(s1, Date.UTC(2024, 0, 1, 13, 0, 0));
+    expect(svc.getStatus().integrityOk).toBe(false);
+    expect(svc.check({ kind: 'web', value: 'https://example.com' }).allowed).toBe(false);
+  });
+
+  describe('bypass resistance', () => {
+    const now = Date.UTC(2024, 0, 1, 12, 0, 0);
+
+    it('refuses to activate a mode that turns blocks off', () => {
+      service.addTarget({ kind: 'domain', value: 'tiktok.com', label: 'TikTok' }, { type: 'permanent-block' });
+      expect(service.setActiveMode('mode-weekend')).toEqual({ ok: false, reason: 'mode-loosens' });
+      expect(service.check({ kind: 'web', value: 'https://tiktok.com' }).allowed).toBe(false);
+      // Strict modes still work.
+      expect(service.setActiveMode('mode-work').ok).toBe(true);
+      expect(service.setActiveMode(null).ok).toBe(true);
+    });
+
+    it('does not refill break tokens when the reset time or timezone changes', () => {
+      const yt = service.addTarget({ kind: 'domain', value: 'youtube.com', label: 'YouTube' }, { type: 'daily-break' });
+      for (let i = 0; i < 2; i++) {
+        const t = now + i * 3_600_000;
+        service.startMeditation(yt.target.id, t);
+        expect(service.startBreak(yt.target.id, t + DEFAULT_MEDITATION_REQUIRED_MS).ok).toBe(true);
+      }
+      const later = now + 3 * 3_600_000; // 15:00 UTC, both breaks spent
+      expect(service.check({ kind: 'web', value: 'https://youtube.com' }, later).breaksRemaining).toBe(0);
+      // Move the reset boundary to just behind "now" — previously this refilled.
+      expect(service.updateSettings({ resetTime: '14:59' }, later).ok).toBe(true);
+      expect(service.check({ kind: 'web', value: 'https://youtube.com' }, later + 1000).breaksRemaining).toBe(0);
+      expect(service.updateSettings({ timezoneOffsetMinutes: 600 }, later).ok).toBe(true);
+      expect(service.check({ kind: 'web', value: 'https://youtube.com' }, later + 2000).breaksRemaining).toBe(0);
+    });
+
+    it('rejects invalid settings instead of saving them', () => {
+      expect(service.updateSettings({ resetTime: 'banana' }).ok).toBe(false);
+      expect(service.updateSettings({ timezoneOffsetMinutes: 99999 }).ok).toBe(false);
+      expect(service.getState().settings.resetTime).toBe('05:00');
+    });
+
+    it('cannot replace a running locked session with an unlocked one', () => {
+      const s = service.startSession({ name: 'Deep work', startedAt: now, endsAt: now + 3_600_000, locked: true, targetIds: [] }, now);
+      expect(s.ok).toBe(true);
+      const swap = service.startSession({ name: 'x', startedAt: now, endsAt: now + 1, locked: false, targetIds: [] }, now + 1000);
+      expect(swap).toEqual({ ok: false, reason: 'session-locked' });
+      expect(service.endSession(now + 2000)).toEqual({ ok: false, reason: 'session-locked' });
+    });
+
+    it('refuses a break for an id that is not on the list', () => {
+      service.startMeditation('made-up', now);
+      expect(service.startBreak('made-up', now + DEFAULT_MEDITATION_REQUIRED_MS)).toEqual({ ok: false, reason: 'not-found' });
+    });
   });
 
   describe('commitment lock (added targets cannot be removed or unblocked)', () => {
@@ -155,6 +246,19 @@ describe('ProtectionService end-to-end', () => {
       const d = service.check({ kind: 'web', value: 'https://youtube.com' });
       expect(d.allowed).toBe(false);
       expect(d.reason).toBe('permanent-block');
+    });
+
+    it('refuses to loosen a block by switching rule types', () => {
+      const t = service.addTarget(
+        { kind: 'domain', value: 'youtube.com', label: 'YouTube' },
+        { type: 'permanent-block' },
+      );
+      expect(service.updateTargetRule(t.target.id, { type: 'daily-break' })).toEqual({ ok: false, reason: 'locked-no-loosen' });
+      expect(
+        service.updateTargetRule(t.target.id, { type: 'scheduled', windows: [{ start: '00:00', end: '23:59' }] }),
+      ).toEqual({ ok: false, reason: 'locked-no-loosen' });
+      expect(service.updateTargetRule(t.target.id, { type: 'permanent-block' })).toEqual({ ok: true });
+      expect(service.updateTargetRule(t.target.id, { type: 'bogus' } as never)).toEqual({ ok: false, reason: 'invalid-rule' });
     });
 
     it('reports not-found when updating an id that was never added', () => {

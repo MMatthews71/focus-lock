@@ -263,8 +263,10 @@ async function defaultKillProcess(name: string): Promise<void> {
       throw new Error(`taskkill could not terminate ${name}: ${text.trim()}`);
     }
   } else {
-    // Match on the process/command name (strip a trailing .exe if one slipped in).
-    await execFileP('pkill', ['-f', name.replace(/\.exe$/i, '')], { timeout: COMMAND_TIMEOUT_MS });
+    // Match the exact process name (as listed by `ps -o comm=`). `-f` would match
+    // any process whose full command line merely CONTAINS the name, e.g. an
+    // "app" target killing every process with "app" in a path argument.
+    await execFileP('pkill', ['-x', name.replace(/\.exe$/i, '')], { timeout: COMMAND_TIMEOUT_MS });
   }
 }
 
