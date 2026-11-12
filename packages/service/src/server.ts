@@ -25,7 +25,7 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
 import { CONTROL_PAGE_HTML } from './control.js';
 import { parseNewTarget } from './targetinput.js';
-import type { ProtectionService } from './service.js';
+import { isValidRule, type ProtectionService } from './service.js';
 import type { ExtensionGuardian } from './guardian.js';
 import type { AppGuardian } from './appguard.js';
 import type { AccessRequest, Rule } from '@focuslock/core';
@@ -37,6 +37,9 @@ export interface ServerOptions {
   appGuardian?: AppGuardian;
 }
 
+/** Longest focus session the API will start (a locked one can't be ended early). */
+const MAX_SESSION_MS = 7 * 24 * 60 * 60 * 1000;
+
 export const DEFAULT_PORT = 47615; // "FOCUS" on a phone keypad-ish; loopback only.
 
 export function createApiServer(service: ProtectionService, options: ServerOptions = {}): Server {
@@ -44,8 +47,9 @@ export function createApiServer(service: ProtectionService, options: ServerOptio
   const guardian = options.guardian;
   const appGuardian = options.appGuardian;
 
+  const port = options.port ?? DEFAULT_PORT;
   const server = createServer((req, res) => {
-    handle(service, guardian, appGuardian, req, res).catch((err) => {
+    handle(service, guardian, appGuardian, port, req, res).catch((err) => {
       sendJson(res, 500, { error: String(err?.message ?? err) });
     });
   });
@@ -58,7 +62,7 @@ export function createApiServer(service: ProtectionService, options: ServerOptio
     }
   });
 
-  server.listen(options.port ?? DEFAULT_PORT, host);
+  server.listen(port, host);
   return server;
 }
 
@@ -66,6 +70,7 @@ async function handle(
   service: ProtectionService,
   guardian: ExtensionGuardian | undefined,
   appGuardian: AppGuardian | undefined,
+  port: number,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -73,8 +78,19 @@ async function handle(
   const path = url.pathname;
   const method = req.method ?? 'GET';
 
-  // Basic CORS for browser extensions (loopback origin only in practice).
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // Loopback-only sockets are not enough on their own: any web page open in the
+  // browser can also reach 127.0.0.1. Refuse requests that a web page could
+  // forge (see isTrustedRequest) before touching any route.
+  const origin = req.headers.origin;
+  if (!isTrustedRequest(req.headers.host, origin, port)) {
+    return sendJson(res, 403, { error: 'forbidden origin' });
+  }
+
+  // CORS: echo only the trusted origin (the extension or the control page).
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   // Chrome's Private Network Access: a request from an extension/page to this
@@ -141,8 +157,8 @@ async function handle(
     const id = decodeURIComponent(targetMatch[1]!);
     if (method === 'PUT') {
       const body = await readJson<{ rule: Rule }>(req);
-      if (!body?.rule) return sendJson(res, 400, { error: 'expected {rule}' });
-      const result = service.updateTargetRule(id, body.rule);
+      if (!isValidRule(body?.rule)) return sendJson(res, 400, { error: 'expected {rule}' });
+      const result = service.updateTargetRule(id, body!.rule);
       if (result.ok) return sendJson(res, 200, { ok: true });
       return sendJson(res, result.reason === 'not-found' ? 404 : 403, { ok: false, error: result.reason });
     }
@@ -156,7 +172,7 @@ async function handle(
   // ---- Categories ----
   if (method === 'POST' && path === '/categories') {
     const body = await readJson<{ categoryId: string; rule: Rule }>(req);
-    if (!body?.categoryId || !body.rule) return sendJson(res, 400, { error: 'expected {categoryId, rule}' });
+    if (!body?.categoryId || !isValidRule(body.rule)) return sendJson(res, 400, { error: 'expected {categoryId, rule}' });
     try {
       return sendJson(res, 201, service.addCategory(body.categoryId, body.rule));
     } catch (err) {
@@ -172,12 +188,13 @@ async function handle(
   // skipped by the UI.
   if (method === 'POST' && path === '/breaks/meditation/start') {
     const body = await readJson<{ targetId: string }>(req);
-    if (!body?.targetId) return sendJson(res, 400, { error: 'expected {targetId}' });
-    return sendJson(res, 200, service.startMeditation(body.targetId));
+    if (typeof body?.targetId !== 'string' || !body.targetId) return sendJson(res, 400, { error: 'expected {targetId}' });
+    const result = service.startMeditation(body.targetId);
+    return sendJson(res, result.ok ? 200 : 409, result);
   }
   if (method === 'POST' && path === '/breaks/start') {
     const body = await readJson<{ targetId: string }>(req);
-    if (!body?.targetId) return sendJson(res, 400, { error: 'expected {targetId}' });
+    if (typeof body?.targetId !== 'string' || !body.targetId) return sendJson(res, 400, { error: 'expected {targetId}' });
     const result = service.startBreak(body.targetId);
     return sendJson(res, result.ok ? 200 : 409, result);
   }
@@ -224,24 +241,41 @@ async function handle(
   if (method === 'POST' && path === '/modes/activate') {
     const body = await readJson<{ modeId: string | null }>(req);
     const modeId = body?.modeId ?? null;
-    return sendJson(res, service.setActiveMode(modeId) ? 200 : 404, { ok: true });
+    if (modeId !== null && typeof modeId !== 'string') return sendJson(res, 400, { error: 'expected {modeId}' });
+    const result = service.setActiveMode(modeId);
+    return sendJson(res, result.ok ? 200 : result.reason === 'not-found' ? 404 : 403, result);
   }
 
   // ---- Focus sessions ----
   if (method === 'POST' && path === '/sessions/start') {
-    const body = await readJson<{ name: string; durationMs: number; locked?: boolean; targetIds?: string[] }>(req);
-    if (!body?.name || !Number.isFinite(body.durationMs)) {
-      return sendJson(res, 400, { error: 'expected {name, durationMs, locked?, targetIds?}' });
+    const body = await readJson<{ name: unknown; durationMs: unknown; locked?: unknown; targetIds?: unknown }>(req);
+    const targetIds = body?.targetIds ?? [];
+    if (
+      typeof body?.name !== 'string' ||
+      !body.name.trim() ||
+      typeof body.durationMs !== 'number' ||
+      !Number.isFinite(body.durationMs) ||
+      body.durationMs <= 0 ||
+      body.durationMs > MAX_SESSION_MS ||
+      (body.locked !== undefined && typeof body.locked !== 'boolean') ||
+      !Array.isArray(targetIds) ||
+      !targetIds.every((t) => typeof t === 'string')
+    ) {
+      return sendJson(res, 400, { error: 'expected {name, durationMs (1ms..7d), locked?, targetIds?}' });
     }
     const now = Date.now();
-    const session = service.startSession({
-      name: body.name,
-      startedAt: now,
-      endsAt: now + body.durationMs,
-      locked: body.locked ?? false,
-      targetIds: body.targetIds ?? [],
-    });
-    return sendJson(res, 201, session);
+    const result = service.startSession(
+      {
+        name: body.name.trim().slice(0, 100),
+        startedAt: now,
+        endsAt: now + body.durationMs,
+        locked: body.locked ?? false,
+        targetIds: targetIds as string[],
+      },
+      now,
+    );
+    if (!result.ok) return sendJson(res, 409, result);
+    return sendJson(res, 201, result.session);
   }
   if (method === 'POST' && path === '/sessions/end') {
     const result = service.endSession();
@@ -250,15 +284,35 @@ async function handle(
 
   // ---- Settings ----
   if (method === 'PUT' && path === '/settings') {
-    const body = await readJson<{
-      resetTime?: string;
-      timezoneOffsetMinutes?: number;
-    }>(req);
-    service.updateSettings(body ?? {});
+    const body = await readJson<{ resetTime?: unknown; timezoneOffsetMinutes?: unknown }>(req);
+    const result = service.updateSettings(body ?? {});
+    if (!result.ok) return sendJson(res, 400, { error: result.reason });
     return sendJson(res, 200, service.getState().settings);
   }
 
   sendJson(res, 404, { error: `no route for ${method} ${path}` });
+}
+
+/**
+ * Decide whether a request may use the API.
+ *
+ *  - Host must be a loopback name for our port. This defeats DNS rebinding,
+ *    where a hostile site points its own domain at 127.0.0.1.
+ *  - Origin, when present, must be the FocusLock extension (chrome-extension://,
+ *    used by Chrome/Edge/Brave/Opera) or the control page served from this
+ *    server. Browsers always attach Origin to cross-site POSTs, including
+ *    `mode: 'no-cors'` ones, so this stops any website from silently calling
+ *    /shutdown, /modes/activate, /extension/heartbeat, and so on.
+ *  - No Origin at all means a non-browser local client (the block screen's
+ *    Electron main process, the uninstaller's PowerShell, curl) or a same-origin
+ *    GET from the control page. Those are allowed.
+ */
+export function isTrustedRequest(host: string | undefined, origin: string | undefined, port: number): boolean {
+  const loopbackHosts = [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`];
+  if (!host || !loopbackHosts.includes(host.toLowerCase())) return false;
+  if (origin === undefined) return true;
+  if (/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) return true;
+  return loopbackHosts.some((h) => origin.toLowerCase() === `http://${h}`);
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {

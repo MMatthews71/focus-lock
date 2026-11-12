@@ -45,7 +45,9 @@ REM re-installs from paying the full monorepo build cost every time.
 set "NEED_BUILD="
 if /i "%~1"=="rebuild" set "NEED_BUILD=1"
 if /i "%~1"=="force" set "NEED_BUILD=1"
-if not exist "%~dp0apps\desktop\dist\index.html" set "NEED_BUILD=1"
+REM  Only expect a desktop UI bundle when the desktop app is actually present;
+REM  otherwise this check was always true and every launch rebuilt everything.
+if exist "%~dp0apps\desktop\package.json" if not exist "%~dp0apps\desktop\dist\index.html" set "NEED_BUILD=1"
 if not exist "%~dp0packages\service\dist\index.js" set "NEED_BUILD=1"
 if not exist "%~dp0packages\core\dist\index.js" set "NEED_BUILD=1"
 

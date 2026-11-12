@@ -20,7 +20,7 @@ REM Electron binary is missing (or "rebuild" was passed), run setup; otherwise g
 REM straight to launching. This is what stops every launch taking minutes.
 set "NEED_BUILD="
 if /i "%~1"=="rebuild" set "NEED_BUILD=1"
-if not exist "%~dp0apps\desktop\dist\index.html" set "NEED_BUILD=1"
+if exist "%~dp0apps\desktop\package.json" if not exist "%~dp0apps\desktop\dist\index.html" set "NEED_BUILD=1"
 if not exist "%~dp0packages\service\dist\index.js" set "NEED_BUILD=1"
 if not exist "%~dp0packages\core\dist\index.js" set "NEED_BUILD=1"
 if not exist "%~dp0node_modules\electron" set "NEED_BUILD=1"
@@ -40,8 +40,15 @@ echo   Tip: to load the browser extension, open chrome://extensions, enable
 echo   Developer mode, choose "Load unpacked", and select the apps\extension folder.
 echo(
 
-REM Run Electron in this console so you can see its logs.
-call npm run electron --workspace @focuslock/desktop
+REM Run Electron in this console so you can see its logs. Without the desktop
+REM app, run the service here instead and open its built-in control page.
+if exist "%~dp0apps\desktop\package.json" (
+    call npm run electron --workspace @focuslock/desktop
+) else (
+    echo   Desktop app not present - starting the service and opening the control page.
+    start "" "http://127.0.0.1:47615/"
+    node "%~dp0packages\service\dist\index.js"
+)
 
 echo(
 echo   FocusLock window closed. The background service may still be running

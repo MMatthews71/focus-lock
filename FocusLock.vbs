@@ -22,13 +22,40 @@ scriptDir    = fso.GetParentFolderName(WScript.ScriptFullName)
 appDir       = scriptDir & "\apps\desktop"
 electronRoot = scriptDir & "\node_modules\electron"
 
-' --- Run one-time setup if dependencies or the UI build are missing ----------
+Dim hasDesktop
+hasDesktop = fso.FileExists(appDir & "\package.json")
+
+' --- Run one-time setup if dependencies or the build are missing ------------
 If (Not fso.FolderExists(scriptDir & "\node_modules")) _
-   Or (Not fso.FileExists(appDir & "\dist\index.html")) _
-   Or (Not fso.FolderExists(electronRoot)) Then
+   Or (Not fso.FileExists(scriptDir & "\packages\service\dist\index.js")) _
+   Or (hasDesktop And Not fso.FileExists(appDir & "\dist\index.html")) _
+   Or (hasDesktop And Not fso.FolderExists(electronRoot)) Then
     sh.CurrentDirectory = scriptDir
     ' Visible (1) and wait for it to finish (True).
     sh.Run "cmd /c """ & scriptDir & "\setup.bat""", 1, True
+End If
+
+' --- No desktop app in this checkout: start the service hidden and open its
+'     built-in control page in the default browser instead.
+If Not hasDesktop Then
+    Dim http, up
+    up = False
+    On Error Resume Next
+    Set http = CreateObject("MSXML2.XMLHTTP")
+    http.Open "GET", "http://127.0.0.1:47615/health", False
+    http.Send
+    If Err.Number = 0 Then
+        If http.Status = 200 Then up = True
+    End If
+    Err.Clear
+    On Error GoTo 0
+    If Not up Then
+        sh.CurrentDirectory = scriptDir
+        sh.Run "node """ & scriptDir & "\packages\service\dist\index.js""", 0, False
+        WScript.Sleep 2000
+    End If
+    sh.Run "http://127.0.0.1:47615/", 1, False
+    WScript.Quit 0
 End If
 
 ' --- Locate the Electron executable ------------------------------------------

@@ -108,10 +108,23 @@ export function boot(options: BootOptions = {}) {
 
   // Heartbeat: a cheap liveness signal a supervisor / the UI can observe, and
   // a natural place to re-verify integrity over time.
+  // Also prunes the statistics log, which every blocked attempt appends to and
+  // /stats re-reads in full — left alone it grows without bound.
+  const STATS_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+  let lastPrune = 0;
   const heartbeat = setInterval(() => {
     const s = service.getStatus();
     if (!s.integrityOk) {
       log('integrity check failing — enforcing fail-closed safe mode');
+    }
+    const now = Date.now();
+    if (now - lastPrune > 6 * 60 * 60 * 1000) {
+      lastPrune = now;
+      try {
+        store.pruneStatEvents(now - STATS_RETENTION_MS);
+      } catch (err) {
+        log(`could not prune stats: ${String(err)}`);
+      }
     }
   }, 30_000);
   heartbeat.unref?.();
